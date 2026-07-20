@@ -47,7 +47,7 @@ It does not own:
 - production of platform-binding instances or renderer-specific output;
 - orchestration of the compiler, NFM, CPM, realization, or renderer stages.
 
-## Planned repository layout
+## Repository layout
 
 ```text
 schema/       versioned canonical schema modules and schema-set metadata
