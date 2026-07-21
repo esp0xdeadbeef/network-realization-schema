@@ -138,6 +138,27 @@ let
       builtins.length refs
     )) true;
 
+  validateScope =
+    scope: networkData:
+    let
+      scopeKind = scope.kind or null;
+      scopeIdentity = scope.identity or null;
+      sites = builtins.attrNames networkData;
+    in
+    if scopeKind == "complete-artifact" then
+      true
+    else if scopeKind == "site" then
+      if builtins.length sites == 0 then
+        fail "NR_SCOPE_MISMATCH" "/network/data"
+          "network data is empty for site scope \"${scopeIdentity}\""
+      else if builtins.length sites != 1 || builtins.elemAt sites 0 != scopeIdentity then
+        fail "NR_SCOPE_MISMATCH" "/network/data"
+          "site scope \"${scopeIdentity}\" does not match network data sites ${builtins.toJSON sites}"
+      else
+        true
+    else
+      fail "NR_SCOPE_MISMATCH" "/requestScope/kind" "unsupported scope kind \"${scopeKind}\"";
+
   validateCoverage =
     coverage:
     let
@@ -246,6 +267,7 @@ let
       _revision = requireEqual "NR_SCHEMA_UNKNOWN" "/schemaRevision" schema.bundle.revision revision;
       expectedIdentity = computeBundleIdentity candidate;
       _identity = requireEqual "NR_ARTIFACT_DIGEST_MISMATCH" "/bundleIdentity" expectedIdentity identity;
+      _scope = validateScope scope networkData;
       _protected = validateProtectedReferences (candidate.protectedReferences or null);
       _coverage = validateCoverage (candidate.upstreamCoverage or null);
     in
@@ -254,6 +276,7 @@ let
         _kind
         _revision
         _identity
+        _scope
         scopeIdentity
         sourceIdentity
         sourceDigest
@@ -391,5 +414,6 @@ in
     schemaSetIdentity
     validateBundle
     validatePlatformBinding
+    validateScope
     ;
 }
