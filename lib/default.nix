@@ -395,6 +395,111 @@ let
         categoryNames = categoryNames;
       };
 
+  validatePlatformBindingCanonical =
+    binding: canonicalBundle:
+    let
+      _envelope = validatePlatformBinding binding;
+      candidate = requireAttrs "NR_PLATFORM_BINDING_SCHEMA_INVALID" "/" binding;
+      categories = requireAttrs "NR_PLATFORM_BINDING_SCHEMA_INVALID" "/categories" (
+        candidate.categories or null
+      );
+      bundleForResolution = canonicalBundle;
+      expectedTarget = canonicalBundle.target or canonicalBundle.expectedTarget or null;
+
+      # NR-BIND-N4: target must match
+      _target =
+        if expectedTarget != null then
+          requireEqual "NR_PLATFORM_BINDING_TARGET_MISMATCH" "/target" expectedTarget
+            (candidate.target or null)
+        else
+          true;
+
+      # NR-BIND-N6: bundle identity must match canonical
+      canonicalIdentity =
+        if canonicalBundle ? bundleIdentity then
+          canonicalBundle.bundleIdentity
+        else if canonicalBundle ? artifactIdentity then
+          canonicalBundle.artifactIdentity
+        else
+          null;
+      _bundleIdentity =
+        if canonicalIdentity != null then
+          requireEqual "NR_PLATFORM_BINDING_IDENTITY_MISMATCH" "/bundleIdentity" canonicalIdentity
+            (candidate.bundleIdentity or null)
+        else
+          true;
+
+      # NR-BIND-N5: every canonicalPath reference must exist in the bundle data
+      collectCanonicalPaths =
+        value:
+        if builtins.isAttrs value then
+          builtins.concatMap (
+            name:
+            if name == "canonicalPath" && builtins.isString value.${name} then
+              [ value.${name} ]
+            else
+              collectCanonicalPaths value.${name}
+          ) (builtins.attrNames value)
+        else if builtins.isList value then
+          builtins.concatMap collectCanonicalPaths value
+        else
+          [ ];
+
+      # Resolve a JSON pointer path against attrs
+      resolvePointer =
+        path: attrs:
+        let
+          splitPath =
+            s:
+            let
+              slash = builtins.match "([^/]*)/(.*)" s;
+            in
+            if s == "" then [ ] else if slash == null then [ s ] else [ (builtins.elemAt slash 0) ] ++ splitPath (
+              builtins.elemAt slash 1
+            );
+          stripLeadingSlash =
+            s:
+            if builtins.substring 0 1 s == "/" then builtins.substring 1 (builtins.stringLength s - 1) s else s;
+          segments = splitPath (stripLeadingSlash path);
+          resolve =
+            segs: current:
+            if segs == [ ] then
+              true
+            else if !builtins.isAttrs current then
+              false
+            else
+              resolve (builtins.tail segs) (current.${builtins.head segs} or null);
+        in
+        resolve segments attrs;
+
+      canonicalRefs = collectCanonicalPaths categories;
+      _refs = builtins.deepSeq (
+        builtins.map (
+          ref:
+          if resolvePointer ref bundleForResolution then
+            true
+          else
+            fail "NR_PLATFORM_BINDING_REFERENCE_MISSING" ref
+              "canonical path not found in bundle"
+        ) canonicalRefs
+      ) true;
+    in
+    builtins.deepSeq
+      [
+        _envelope
+        _target
+        _bundleIdentity
+        _refs
+        (candidate.target or null)
+        (candidate.bundleIdentity or null)
+      ]
+      (_envelope
+        // {
+          canonicalBundleIdentity = canonicalIdentity;
+          expectedTarget = expectedTarget;
+          validatedRefs = canonicalRefs;
+        });
+
   assertBundle = bundle: builtins.deepSeq (validateBundle bundle) bundle;
 
   assertPlatformBinding = binding: builtins.deepSeq (validatePlatformBinding binding) binding;
@@ -414,6 +519,7 @@ in
     schemaSetIdentity
     validateBundle
     validatePlatformBinding
+    validatePlatformBindingCanonical
     validateScope
     ;
 }

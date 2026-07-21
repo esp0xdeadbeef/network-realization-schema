@@ -129,6 +129,31 @@ let
     }
   );
 
+  # SMS-030 negatives
+
+  bindingSchemaInvalid =
+    (builtins.removeAttrs validBinding [ "kind" ])
+    // {
+      bindingIdentity = schema.computeBindingIdentity (builtins.removeAttrs validBinding [ "kind" ]);
+    };
+
+  bindingTargetMismatch = (
+    builtins.removeAttrs validBinding [ "bindingIdentity" ]
+    // {
+      target = "openconfig";
+    }
+  );
+
+  bindingReferenceMissing = validBinding;
+
+  bindingBundleIdentityMismatch = validBinding;
+
+  canonicalBundleForRefs = validBundle;
+
+  staleBundleForIdentity = {
+    bundleIdentity = "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+  };
+
   checks = [
     (succeeds (schema.validateBundle validBundle))
     (succeeds (schema.validatePlatformBinding validBinding))
@@ -144,6 +169,11 @@ let
     (fails (schema.validateBundle digestMismatch))
     (fails (schema.validatePlatformBinding unknownCategory))
     (fails (schema.validatePlatformBinding bindingProtectedMaterial))
+    (fails (schema.validatePlatformBinding bindingSchemaInvalid))
+    (fails (schema.validatePlatformBindingCanonical bindingTargetMismatch { bundleIdentity = validBundle.bundleIdentity; expectedTarget = "nixos"; }))
+    (fails (schema.validatePlatformBindingCanonical bindingReferenceMissing { bundleIdentity = validBundle.bundleIdentity; network.data = { }; }))
+    (fails (schema.validatePlatformBindingCanonical bindingBundleIdentityMismatch staleBundleForIdentity))
+    (succeeds (schema.validatePlatformBindingCanonical validBinding (validBundle // { expectedTarget = "nixos"; })))
     (
       builtins.length (
         schema.paths.pathsFor {
