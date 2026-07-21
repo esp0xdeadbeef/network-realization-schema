@@ -183,4 +183,45 @@ in
       )
     );
   };
+
+  # SMS-030 seeded negatives (NR-BIND-N1, N4, N5, N6)
+
+  bindingSchemaInvalid = {
+    expected = "NR_PLATFORM_BINDING_SCHEMA_INVALID: /kind: expected";
+    value = schema.validatePlatformBinding (
+      (builtins.removeAttrs validBinding [ "kind" ])
+      // {
+        bindingIdentity = schema.computeBindingIdentity (builtins.removeAttrs validBinding [ "kind" ]);
+      }
+    );
+  };
+
+  bindingTargetMismatch = {
+    expected = "NR_PLATFORM_BINDING_TARGET_MISMATCH: /target: expected";
+    value = schema.validatePlatformBindingCanonical
+      (builtins.removeAttrs validBinding [ "bindingIdentity" ]
+        // {
+          target = "openconfig";
+          bindingIdentity = schema.computeBindingIdentity (
+            builtins.removeAttrs validBinding [ "bindingIdentity" ] // {
+              target = "openconfig";
+            }
+          );
+        })
+      { bundleIdentity = validBundle.bundleIdentity; expectedTarget = "nixos"; };
+  };
+
+  bindingReferenceMissing = {
+    expected = "NR_PLATFORM_BINDING_REFERENCE_MISSING:";
+    value = schema.validatePlatformBindingCanonical
+      validBinding
+      { bundleIdentity = validBundle.bundleIdentity; network.data = { }; };
+  };
+
+  bindingBundleIdentityMismatch = {
+    expected = "NR_PLATFORM_BINDING_IDENTITY_MISMATCH: /bundleIdentity: expected";
+    value = schema.validatePlatformBindingCanonical
+      validBinding
+      { bundleIdentity = "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; };
+  };
 }
