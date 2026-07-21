@@ -59,6 +59,21 @@ in
     );
   };
 
+  scopeMismatch = {
+    expected = ''NR_SCOPE_MISMATCH: /network/data: site scope "nonexistent" does not match network data sites'';
+    value = schema.validateBundle (
+      withBundleIdentity (
+        validBundle
+        // {
+          requestScope = validBundle.requestScope // {
+            kind = "site";
+            identity = "nonexistent";
+          };
+        }
+      )
+    );
+  };
+
   provenanceIncomplete = {
     expected = "NR_PROVENANCE_INVALID: /provenance/transformationRuleSet: expected non-empty string";
     value = schema.validateBundle (

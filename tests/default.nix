@@ -47,6 +47,16 @@ let
     }
   );
 
+  scopeMismatch = withBundleIdentity (
+    validBundle
+    // {
+      requestScope = validBundle.requestScope // {
+        kind = "site";
+        identity = "nonexistent";
+      };
+    }
+  );
+
   invalidProvenance = withBundleIdentity (
     validBundle
     // {
@@ -125,6 +135,7 @@ let
     (fails (schema.validateBundle unknownRevision))
     (fails (schema.validateBundle invalidShape))
     (fails (schema.validateBundle scopeEscape))
+    (fails (schema.validateBundle scopeMismatch))
     (fails (schema.validateBundle invalidProvenance))
     (fails (schema.validateBundle duplicateCoverage))
     (fails (schema.validateBundle protectedMaterial))
