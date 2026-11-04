@@ -159,6 +159,73 @@ let
     else
       fail "NR_SCOPE_MISMATCH" "/requestScope/kind" "unsupported scope kind \"${scopeKind}\"";
 
+  # Upstream coverage accounting, computed from the artifact's own network
+  # content plus the declared invariants.
+  #
+  # A bundle no longer ships one record per CPM leaf. It ships the invariants
+  # that decide a path's classification and versioned rule, plus a
+  # `coverageIdentity` bound to the canonical artifact identity. Verification
+  # recomputes the same accounting from `network.data` and compares. The answer
+  # is therefore identical to the expanded form, without carrying 341k rows that
+  # no consumer reads.
+  coverageInvariantsFor =
+    bundle:
+    let
+      declared = bundle.coverageInvariants or { };
+      attrs = requireAttrs "NR_SCHEMA_SHAPE_INVALID" "/coverageInvariants" declared;
+      classification = requireString "NR_COVERAGE_INVALID" "/coverageInvariants/classification" (
+        attrs.classification or null
+      );
+      transformationRule = requireString "NR_COVERAGE_INVALID" "/coverageInvariants/transformationRule" (
+        attrs.transformationRule or null
+      );
+      _classification =
+        if
+          builtins.elem classification [
+            "realized"
+            "not-applicable"
+            "rejected-unsupported"
+          ]
+        then
+          true
+        else
+          fail "NR_COVERAGE_INVALID" "/coverageInvariants/classification" "unsupported classification";
+    in
+    builtins.deepSeq [ classification transformationRule _classification ] {
+      inherit classification transformationRule;
+    };
+
+  # Rebuild the per-path accounting from bundle network content.
+  canonicalCoverageRows =
+    bundle:
+    let
+      invariants = coverageInvariantsFor bundle;
+      records = paths.leafRecords {
+        value = bundle.network.data;
+        rootPath = "/control_plane_model";
+      };
+      stripPrefix =
+        prefix: value:
+        let
+          plen = builtins.stringLength prefix;
+        in
+        if
+          builtins.stringLength value >= plen
+          && builtins.substring 0 plen value == prefix
+        then
+          builtins.substring plen (builtins.stringLength value - plen) value
+        else
+          fail "NR_UPSTREAM_DESTINATION_INVALID" value "source path is outside control_plane_model";
+    in
+    map (record: {
+      sourcePath = record.path;
+      destinationPath = "/network/data" + stripPrefix "/control_plane_model" record.path;
+      inherit (invariants) classification transformationRule;
+    }) records;
+
+  computeCoverageIdentity =
+    bundle: builtins.hashString "sha256" (builtins.toJSON (canonicalCoverageRows bundle));
+
   validateCoverage =
     coverage:
     let
@@ -269,7 +336,38 @@ let
       _identity = requireEqual "NR_ARTIFACT_DIGEST_MISMATCH" "/bundleIdentity" expectedIdentity identity;
       _scope = validateScope scope networkData;
       _protected = validateProtectedReferences (candidate.protectedReferences or null);
-      _coverage = validateCoverage (candidate.upstreamCoverage or null);
+      # Expansion is optional now. When it is present it must agree with the
+      # accounting recomputed from network content, so the two forms can never
+      # diverge; when it is absent only the recomputed form is checked.
+      _expanded =
+        if candidate ? upstreamCoverage then
+          builtins.deepSeq (validateCoverage candidate.upstreamCoverage) (
+            let
+              expanded = map (row: {
+                sourcePath = row.sourcePath or null;
+                destinationPath = row.destinationPath or null;
+                classification = row.classification or null;
+                transformationRule = row.transformationRule or null;
+              }) candidate.upstreamCoverage;
+              recomputed = canonicalCoverageRows candidate;
+            in
+            if builtins.toJSON expanded == builtins.toJSON recomputed then
+              true
+            else
+              fail "NR_COVERAGE_IDENTITY_MISMATCH" "/upstreamCoverage"
+                "expanded coverage disagrees with the recomputed accounting"
+          )
+        else
+          true;
+      declaredCoverageIdentity = requireString "NR_COVERAGE_INVALID" "/coverageIdentity" (
+        candidate.coverageIdentity or null
+      );
+      _coverageIdentity =
+        if declaredCoverageIdentity == computeCoverageIdentity candidate then
+          true
+        else
+          fail "NR_COVERAGE_IDENTITY_MISMATCH" "/coverageIdentity"
+            "recomputed accounting disagrees with the delivered coverage identity";
     in
     builtins.deepSeq
       [
@@ -285,7 +383,8 @@ let
         producerRevision
         transformationRuleSet
         _protected
-        _coverage
+        _expanded
+        _coverageIdentity
       ]
       {
         valid = true;
@@ -510,8 +609,11 @@ in
     assertPlatformBinding
     bindingIdentityPayload
     bundleIdentityPayload
+    canonicalCoverageRows
     computeBindingIdentity
     computeBundleIdentity
+    computeCoverageIdentity
+    coverageInvariantsFor
     forceAll
     paths
     schema

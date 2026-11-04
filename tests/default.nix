@@ -64,10 +64,30 @@ let
     }
   );
 
+  # The expanded array is optional now, but when a bundle carries one it must
+  # agree with the accounting recomputed from network content. A duplicated row
+  # is exactly such a disagreement, so this stays a coverage failure.
   duplicateCoverage = withBundleIdentity (
     validBundle
     // {
-      upstreamCoverage = validBundle.upstreamCoverage ++ validBundle.upstreamCoverage;
+      upstreamCoverage = schema.canonicalCoverageRows validBundle
+        ++ schema.canonicalCoverageRows validBundle;
+    }
+  );
+
+  # A coverage identity that no longer describes the bundle's network content.
+  staleCoverageIdentity = withBundleIdentity (
+    validBundle
+    // {
+      coverageIdentity = builtins.hashString "sha256" "not-the-real-accounting";
+    }
+  );
+
+  # An artifact that ships the expanded enumeration instead of deriving it.
+  expandedCoverageOnly = withBundleIdentity (
+    (builtins.removeAttrs validBundle [ "coverageIdentity" ])
+    // {
+      upstreamCoverage = schema.canonicalCoverageRows validBundle;
     }
   );
 
@@ -163,6 +183,8 @@ let
     (fails (schema.validateBundle scopeMismatch))
     (fails (schema.validateBundle invalidProvenance))
     (fails (schema.validateBundle duplicateCoverage))
+    (fails (schema.validateBundle staleCoverageIdentity))
+    (fails (schema.validateBundle expandedCoverageOnly))
     (fails (schema.validateBundle protectedMaterial))
     (fails (schema.validatePlatformBinding bindingAuthority))
     (fails (schema.validatePlatformBinding stackedSidecar))
