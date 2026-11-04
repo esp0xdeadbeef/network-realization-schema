@@ -28,17 +28,20 @@ let
       transformationRuleSet = "cpm-identity-v1";
       sourceArtifactDigest = builtins.hashString "sha256" "fixture-cpm";
     };
-    upstreamCoverage = [
-      {
-        sourcePath = "/control_plane_model/data/example/site/runtimeTargets/router/role";
-        destinationPath = "/network/data/example/site/runtimeTargets/router/role";
-        classification = "realized";
-        transformationRule = "cpm-identity-v1";
-      }
-    ];
+    # Upstream coverage is delivered as declared invariants plus a coverage
+    # identity bound to the canonical artifact identity. The per-path accounting
+    # is recomputed from `network.data` at validation time, so the expanded
+    # `upstreamCoverage` array is no longer carried by the artifact.
+    coverageInvariants = {
+      classification = "realized";
+      transformationRule = "cpm-identity-v1";
+    };
+  };
+  withCoverage = candidate // {
+    coverageIdentity = schema.computeCoverageIdentity candidate;
   };
 in
-candidate
+withCoverage
 // {
-  bundleIdentity = schema.computeBundleIdentity candidate;
+  bundleIdentity = schema.computeBundleIdentity withCoverage;
 }

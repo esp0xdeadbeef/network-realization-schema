@@ -92,7 +92,20 @@ in
       withBundleIdentity (
         validBundle
         // {
-          upstreamCoverage = validBundle.upstreamCoverage ++ validBundle.upstreamCoverage;
+          upstreamCoverage =
+            schema.canonicalCoverageRows validBundle ++ schema.canonicalCoverageRows validBundle;
+        }
+      )
+    );
+  };
+
+  staleCoverageIdentity = {
+    expected = "NR_COVERAGE_IDENTITY_MISMATCH: /coverageIdentity: recomputed accounting disagrees with the delivered coverage identity";
+    value = schema.validateBundle (
+      withBundleIdentity (
+        validBundle
+        // {
+          coverageIdentity = builtins.hashString "sha256" "not-the-real-accounting";
         }
       )
     );
