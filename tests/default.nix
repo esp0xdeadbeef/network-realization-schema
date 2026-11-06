@@ -38,6 +38,34 @@ let
 
   invalidShape = withBundleIdentity (builtins.removeAttrs validBundle [ "requestScope" ]);
 
+  # A producer that adds a non-site value next to the enterprise map is
+  # inventing network content; the bundle shape must reject it (FS-310 canonical
+  # bundle, no renderer-invented defaults).
+  inventedNetworkData = withBundleIdentity (
+    validBundle
+    // {
+      network = validBundle.network // {
+        data = validBundle.network.data // {
+          invented = true;
+        };
+      };
+    }
+  );
+
+  # The realized bundle carries the control-plane envelope in `network.data`;
+  # an unknown envelope field is equally invented content.
+  inventedEnvelopeField = withBundleIdentity (
+    validBundle
+    // {
+      network = validBundle.network // {
+        data = {
+          data = validBundle.network.data;
+          rendererInventedDefault = true;
+        };
+      };
+    }
+  );
+
   scopeEscape = withBundleIdentity (
     validBundle
     // {
@@ -179,6 +207,8 @@ let
     (succeeds (schema.validatePlatformBinding validBinding))
     (fails (schema.validateBundle unknownRevision))
     (fails (schema.validateBundle invalidShape))
+    (fails (schema.validateBundle inventedNetworkData))
+    (fails (schema.validateBundle inventedEnvelopeField))
     (fails (schema.validateBundle scopeEscape))
     (fails (schema.validateBundle scopeMismatch))
     (fails (schema.validateBundle invalidProvenance))
