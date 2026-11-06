@@ -322,28 +322,12 @@ let
       networkData = requireAttrs "NR_SCHEMA_SHAPE_INVALID" "/network/data" (network.data or null);
       # `network.data` is either the enterprise -> site map itself (the schema's
       # own fixture shape) or the control-plane envelope that carries it (the
-      # realized bundle shape: `{ data = <enterprise map>; ... }`). In both
-      # cases the enterprise map must be validated all the way down, and the
-      # envelope may not carry unknown fields: a producer that adds a non-site
-      # value there is inventing content the canonical contract does not carry.
-      networkEnvelope =
-        if networkData ? data then
-          let
-            allowed = [
-              "data"
-              "meta"
-            ];
-            unknown = builtins.filter (name: !(builtins.elem name allowed)) (
-              builtins.attrNames networkData
-            );
-          in
-          if unknown == [ ] then
-            requireAttrs "NR_SCHEMA_SHAPE_INVALID" "/network/data/data" networkData.data
-          else
-            fail "NR_SCHEMA_SHAPE_INVALID" "/network/data"
-              "unexpected control-plane envelope fields ${builtins.toJSON unknown}"
-        else
-          networkData;
+      # realized bundle shape: `{ data = <enterprise map>; ... }`). Validate the
+      # enterprise map all the way down: a producer that adds a non-site value
+      # there is inventing network content the canonical bundle must not carry.
+      # The envelope's own fields are the control plane's artifact contract, not
+      # this schema's, so they are not policed by name here.
+      enterpriseMap = networkData.data or networkData;
       _networkDataShape = builtins.deepSeq (
         builtins.mapAttrs
           (
@@ -361,7 +345,7 @@ let
               )
               true
           )
-          networkEnvelope
+          (requireAttrs "NR_SCHEMA_SHAPE_INVALID" "/network/data" enterpriseMap)
       ) true;
       provenance = requireAttrs "NR_PROVENANCE_INVALID" "/provenance" (candidate.provenance or null);
       producer = requireString "NR_PROVENANCE_INVALID" "/provenance/producer" (
