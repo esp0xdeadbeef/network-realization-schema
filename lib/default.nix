@@ -327,7 +327,19 @@ let
       # there is inventing network content the canonical bundle must not carry.
       # The envelope's own fields are the control plane's artifact contract, not
       # this schema's, so they are not policed by name here.
-      enterpriseMap = networkData.data or networkData;
+      # Producers hand over either the CPM envelope (`{ data = ... }`) or the
+      # CPM build result, which wraps that envelope as
+      # `{ control_plane_model = <envelope>; endpointInventory; ... }`. The
+      # schema validates the enterprise map; the wrapper's other fields are the
+      # control plane's artifact contract and are not policed here.
+      enterpriseMap =
+        if
+          builtins.isAttrs (networkData.control_plane_model or null)
+          && builtins.isAttrs (networkData.control_plane_model.data or null)
+        then
+          networkData.control_plane_model.data
+        else
+          networkData.data or networkData;
       _networkDataShape = builtins.deepSeq (
         builtins.mapAttrs
           (
