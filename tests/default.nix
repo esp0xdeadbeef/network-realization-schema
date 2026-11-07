@@ -20,6 +20,16 @@ let
       bundleIdentity = schema.computeBundleIdentity (builtins.removeAttrs bundle [ "bundleIdentity" ]);
     };
 
+  withCoverageAndIdentity =
+    bundle:
+    let
+      withoutIdentities = builtins.removeAttrs bundle [ "bundleIdentity" "coverageIdentity" ];
+      withCoverage = withoutIdentities // {
+        coverageIdentity = schema.computeCoverageIdentity withoutIdentities;
+      };
+    in
+    withCoverage // { bundleIdentity = schema.computeBundleIdentity withCoverage; };
+
   withBindingIdentity =
     binding:
     (builtins.removeAttrs binding [ "bindingIdentity" ])
@@ -47,6 +57,39 @@ let
       network = validBundle.network // {
         data = validBundle.network.data // {
           invented = true;
+        };
+      };
+    }
+  );
+
+  # Producers may hand over the control-plane build result, which wraps the CPM
+  # envelope as `{ control_plane_model = <envelope>; ... }`. The schema validates
+  # the enterprise map inside that envelope, and still rejects invented content
+  # there.
+  wrappedNetworkData = withCoverageAndIdentity (
+    validBundle
+    // {
+      network = validBundle.network // {
+        data = {
+          control_plane_model = {
+            data = validBundle.network.data;
+            version = 1;
+          };
+          endpointInventory = { };
+        };
+      };
+    }
+  );
+
+  inventedWrappedNetworkData = withCoverageAndIdentity (
+    validBundle
+    // {
+      network = validBundle.network // {
+        data = {
+          control_plane_model = {
+            data = validBundle.network.data // { invented = true; };
+            version = 1;
+          };
         };
       };
     }
@@ -194,6 +237,8 @@ let
     (fails (schema.validateBundle unknownRevision))
     (fails (schema.validateBundle invalidShape))
     (fails (schema.validateBundle inventedNetworkData))
+    (succeeds (schema.validateBundle wrappedNetworkData))
+    (fails (schema.validateBundle inventedWrappedNetworkData))
     (fails (schema.validateBundle scopeEscape))
     (fails (schema.validateBundle scopeMismatch))
     (fails (schema.validateBundle invalidProvenance))
