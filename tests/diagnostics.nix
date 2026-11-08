@@ -26,6 +26,23 @@ let
     };
 in
 {
+  unknownBundleExtension = {
+    expected = "NR_SCHEMA_SHAPE_INVALID: /: unknown bundle extension fields";
+    value = schema.validateBundle (
+      withBundleIdentity (
+        validBundle
+        // {
+          # A producer must not smuggle unvalidated artifact content (for
+          # example a second platform-binding sidecar) past the schema.
+          platformBinding = {
+            kind = "network-platform-binding-bundle";
+            target = "openconfig";
+          };
+        }
+      )
+    );
+  };
+
   unknownRevision = {
     expected = "NR_SCHEMA_UNKNOWN: /schemaRevision: expected";
     value = schema.validateBundle (

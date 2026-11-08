@@ -359,6 +359,19 @@ let
           )
           (requireAttrs "NR_SCHEMA_SHAPE_INVALID" "/network/data" enterpriseMap)
       ) true;
+      # FS-161-HDS-010-SDS-010-SMS-010: reject unknown extensions. A producer
+      # that adds a field the schema does not define is adding unvalidated
+      # artifact content (including a second platform-binding sidecar).
+      allowedFields = schema.bundle.required ++ schema.bundle.optional ++ [ "validation" ];
+      unknownFields = builtins.filter (name: !(builtins.elem name allowedFields)) (
+        builtins.attrNames candidate
+      );
+      _unknownFields =
+        if unknownFields == [ ] then
+          true
+        else
+          fail "NR_SCHEMA_SHAPE_INVALID" "/"
+            "unknown bundle extension fields ${builtins.toJSON unknownFields}";
       provenance = requireAttrs "NR_PROVENANCE_INVALID" "/provenance" (candidate.provenance or null);
       producer = requireString "NR_PROVENANCE_INVALID" "/provenance/producer" (
         provenance.producer or null
@@ -412,6 +425,7 @@ let
       [
         _kind
         _revision
+        _unknownFields
         _identity
         _networkDataShape
         _scope

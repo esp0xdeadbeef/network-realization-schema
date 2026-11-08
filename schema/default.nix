@@ -21,6 +21,7 @@
     optional = [
       "coverageInvariants"
       "upstreamCoverage"
+      "upstreamCoverageIdentity"
     ];
   };
 
