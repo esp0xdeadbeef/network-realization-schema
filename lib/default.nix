@@ -297,6 +297,60 @@ let
     in
     builtins.deepSeq [ validated _uniqueSources _uniqueDestinations ] true;
 
+  # The bundle's platform-neutral network content.
+  #
+  # A renderer's job is to map canonical objects onto platform mechanics. The
+  # objects themselves belong to the producer and must reach the renderer
+  # through the validated bundle, not through the control-plane artifact that
+  # `network.data` wraps. This section is therefore validated on its own terms:
+  #
+  #   * only collections the schema names may appear (a producer cannot widen
+  #     the contract by publishing an extra collection);
+  #   * every collection is a list or an attribute set (a scalar would not be a
+  #     collection and a renderer could not map it);
+  #   * entries are attribute sets (each canonical object has its own fields).
+  #
+  # Absent is allowed: a bundle realized from a producer that publishes no
+  # canonical collections is still a valid bundle. It is not, however, a bundle
+  # a peer renderer can map, which is why the renderer-boundary check lives in
+  # the renderer that consumes the field.
+  validateCanonical =
+    value:
+    let
+      canonical = requireAttrs "NR_SCHEMA_SHAPE_INVALID" "/canonical" value;
+      names = builtins.attrNames canonical;
+      unknown = builtins.filter (name: !(builtins.elem name schema.bundle.canonicalCollections)) names;
+      _unknown =
+        if unknown == [ ] then
+          true
+        else
+          fail "NR_SCHEMA_SHAPE_INVALID" "/canonical"
+            "unknown canonical collections ${builtins.toJSON unknown}";
+      checkCollection =
+        name:
+        let
+          collection = canonical.${name};
+          path = "/canonical/${name}";
+          entries =
+            if builtins.isList collection then
+              collection
+            else if builtins.isAttrs collection then
+              builtins.attrValues collection
+            else
+              fail "NR_SCHEMA_SHAPE_INVALID" path "expected a list or an attribute set";
+        in
+        builtins.deepSeq (
+          builtins.map (
+            entry:
+            if builtins.isAttrs entry then
+              true
+            else
+              fail "NR_SCHEMA_SHAPE_INVALID" path "canonical entry is not an attribute set"
+          ) entries
+        ) true;
+    in
+    builtins.deepSeq [ _unknown (builtins.map checkCollection names) ] true;
+
   validateBundle =
     bundle:
     let
@@ -420,6 +474,8 @@ let
         else
           fail "NR_COVERAGE_IDENTITY_MISMATCH" "/coverageIdentity"
             "recomputed accounting disagrees with the delivered coverage identity";
+      _canonical =
+        if candidate ? canonical then validateCanonical candidate.canonical else true;
     in
     builtins.deepSeq
       [
@@ -439,6 +495,7 @@ let
         _protected
         _expanded
         _coverageIdentity
+        _canonical
       ]
       {
         valid = true;
@@ -674,6 +731,7 @@ in
     schemaMetadata
     schemaSetIdentity
     validateBundle
+    validateCanonical
     validatePlatformBinding
     validatePlatformBindingCanonical
     validateScope

@@ -231,8 +231,39 @@ let
     bundleIdentity = "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
   };
 
+  # A bundle that carries canonical network content: the shape every peer
+  # renderer consumes. This is the positive side of the `canonical` section --
+  # without it, the three diagnostics below could pass while the section itself
+  # rejected every real bundle.
+  canonicalBundle = withCoverageAndIdentity (
+    validBundle
+    // {
+      canonical = {
+        canonicalInterfaces = [
+          {
+            identity.name = "lan";
+            type.ianaIdentity = "ethernetCsmacd";
+            canonicalPath = "/network/data/data/example/site/runtimeTargets/router/interfaces/lan";
+          }
+        ];
+        # A collection may also arrive keyed, as the producer publishes it.
+        canonicalRoutes = {
+          "router/lan/4/main/0.0.0.0-0" = {
+            target = "router";
+            runtimeIfName = "lan";
+            family = 4;
+            dst = "0.0.0.0/0";
+            tableId = null;
+          };
+        };
+      };
+    }
+  );
+
   checks = [
     (succeeds (schema.validateBundle validBundle))
+    (succeeds (schema.validateBundle canonicalBundle))
+    (fails (schema.validateCanonical { canonicalInventedByProducer = [ ]; }))
     (succeeds (schema.validatePlatformBinding validBinding))
     (fails (schema.validateBundle unknownRevision))
     (fails (schema.validateBundle invalidShape))

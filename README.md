@@ -59,6 +59,12 @@ flake.nix     pinned validation and development entry points
 The initial implementation publishes:
 
 - `network-realization/v1` for canonical realization bundles;
+
+the bundle's platform-neutral network content in the optional `canonical`
+section (`canonicalInterfaces`, `canonicalRoutes`, `canonicalSites`,
+`canonicalRuntimeTargets`, `canonicalWireGuard`, `canonicalNebula`), which is
+how a renderer maps canonical objects without reading the control-plane model
+the bundle wraps;
 - `network-platform-binding/v1` for one normalized target binding bundle
   whose permitted categories are interface identity, deployment,
   secret-delivery, lifecycle, and backend mechanics;

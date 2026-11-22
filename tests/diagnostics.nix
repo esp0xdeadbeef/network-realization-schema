@@ -43,6 +43,57 @@ in
     );
   };
 
+  # `canonical` is a closed set. A producer that publishes a collection the
+  # schema does not name is widening the renderer contract on its own, which is
+  # the same defect as an unknown top-level field one level down.
+  unknownCanonicalCollection = {
+    expected = "NR_SCHEMA_SHAPE_INVALID: /canonical: unknown canonical collections";
+    value = schema.validateBundle (
+      withBundleIdentity (
+        validBundle
+        // {
+          canonical = {
+            canonicalInterfaces = [ ];
+            canonicalInventedByProducer = [ ];
+          };
+        }
+      )
+    );
+  };
+
+  # A canonical collection must be mappable. A scalar is not a collection, and
+  # a renderer that received one would have to reconstruct the objects itself --
+  # exactly the invention the boundary forbids.
+  canonicalCollectionShape = {
+    expected = "NR_SCHEMA_SHAPE_INVALID: /canonical/canonicalRoutes: expected a list or an attribute set";
+    value = schema.validateBundle (
+      withBundleIdentity (
+        validBundle
+        // {
+          canonical = {
+            canonicalRoutes = "not-a-collection";
+          };
+        }
+      )
+    );
+  };
+
+  # One canonical object is one attribute set. A bare string in the list cannot
+  # carry identity, type or path, so it would force the renderer to invent them.
+  canonicalEntryShape = {
+    expected = "NR_SCHEMA_SHAPE_INVALID: /canonical/canonicalInterfaces: canonical entry is not an attribute set";
+    value = schema.validateBundle (
+      withBundleIdentity (
+        validBundle
+        // {
+          canonical = {
+            canonicalInterfaces = [ "interface-with-no-fields" ];
+          };
+        }
+      )
+    );
+  };
+
   unknownRevision = {
     expected = "NR_SCHEMA_UNKNOWN: /schemaRevision: expected";
     value = schema.validateBundle (
