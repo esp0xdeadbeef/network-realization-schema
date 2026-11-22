@@ -331,6 +331,22 @@ let
         let
           collection = canonical.${name};
           path = "/canonical/${name}";
+          # One canonical collection may be a flat list of objects, a keyed
+          # attribute set of objects, or a record of such (the producer
+          # publishes `canonicalRuntimeTargets = { targets = [...]; }` and
+          # `canonicalSites = { sites = [...]; overlays = [...]; }`). Descend
+          # through attribute sets and lists until an object is reached, and
+          # require that object to be an attribute set.
+          checkEntry =
+            entryPath: entry:
+            if builtins.isList entry then
+              builtins.deepSeq (builtins.genList (
+                index: checkEntry "${entryPath}/${toString index}" (builtins.elemAt entry index)
+              ) (builtins.length entry)) true
+            else if builtins.isAttrs entry then
+              true
+            else
+              fail "NR_SCHEMA_SHAPE_INVALID" entryPath "canonical entry is not an attribute set";
           entries =
             if builtins.isList collection then
               collection
@@ -342,10 +358,7 @@ let
         builtins.deepSeq (
           builtins.map (
             entry:
-            if builtins.isAttrs entry then
-              true
-            else
-              fail "NR_SCHEMA_SHAPE_INVALID" path "canonical entry is not an attribute set"
+            checkEntry path entry
           ) entries
         ) true;
     in
