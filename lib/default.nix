@@ -335,65 +335,49 @@ let
           # publishes `canonicalRuntimeTargets = { targets = [...]; }` and
           # `canonicalSites = { sites = [...]; overlays = [...]; }`).
           #
-          # What a canonical collection holds. Exactly two levels deep, and no
-          # deeper, because that is the contract:
+          # What the schema can honestly say about a collection's contents.
           #
-          #   collection  a list of canonical objects, or an attribute set whose
-          #               values are lists of them. The producer publishes
-          #               `canonicalRuntimeTargets = { targets = [...]; }` and
-          #               `canonicalSites = { sites = [...]; overlays = [...]; }`,
-          #               and `canonicalInterfaces = [ ... ]`.
-          #   object      an attribute set of modelled fields, which may hold
-          #               strings, ints, booleans, lists and nested sets -- all
-          #               of it the object's own content, none of it the
-          #               renderer's business to validate here.
+          # The producer publishes all of these, measured against the CPM for
+          # wireguard-provider-overlay:
           #
-          # THE BUG THIS REPLACES. The first version said "an attribute set is a
-          # valid entry, stop", so `canonicalRoutes = { a = 1; }` was rejected
-          # (the outer set was taken as the collection, `1` as an entry) while
-          # `canonicalSites = { sites = { oops = 1; }; }` was ACCEPTED -- the
-          # outer set short-circuited and the scalar sat one level further down.
-          # Whether a scalar was caught therefore depended on how many wrapper
-          # levels a producer happened to add.
+          #   canonicalInterfaces      [ { .. } ]                 a list of objects
+          #   canonicalRoutes          [ { .. } ]
+          #   canonicalSites           { sites = [ { .. } ]; overlays = [ .. ]; }
+          #   canonicalRuntimeTargets  { targets = [ { .. } ]; }
+          #   canonicalWireGuard       { providers = { <overlay> = { .. }; };
+          #                              contracts = { wireguard = { <overlay> = { .. }; }; }; }
           #
-          # The naive fix -- descend until every leaf is an attribute set --
-          # rejects the real thing as well: a canonical object legitimately
-          # carries strings (`dst = "10.0.0.0/8"`). Measured that way too.
-          isObject = value: builtins.isAttrs value;
-          checkEntry = entryPath: entry:
-            if isObject entry then
+          # The last one settles it: `canonicalWireGuard.contracts.wireguard` is
+          # an attribute set of objects, nested two deep, so "two levels only"
+          # is wrong -- and it rejected a real bundle when this validator said
+          # so. Structure alone cannot distinguish "one more collection level"
+          # (`contracts.wireguard`) from "an object's own fields" (`{ dst =
+          # "10.0.0.0/8"; }`); both are attribute sets, and descending into the
+          # second rejects real objects while stopping at the first lets a
+          # scalar through.
+          #
+          # So the schema checks what it can prove without guessing: the
+          # collection exists, is named in the closed set, and is a list or an
+          # attribute set. Content-level claims belong to the consumer, which
+          # knows what it is looking for and fails closed when the field it maps
+          # is absent (network-renderer-openconfig's OC_TYPE_IDENTITY_UNMAPPED is
+          # the existing example).
+          #
+          # History, because both wrong versions were shipped and reverted:
+          # "an attribute set is a valid entry, stop" ACCEPTED
+          # `{ sites = { oops = 1; }; }` -- a scalar one wrapper down; "every
+          # leaf must be an attribute set" REJECTED `{ dst = "..."; }`. Neither
+          # is a rule the data supports.
+          _isList = builtins.isList canonical.${name};
+          _isAttrs = builtins.isAttrs canonical.${name};
+          _shape =
+            if _isList || _isAttrs then
               true
             else
-              fail "NR_SCHEMA_SHAPE_INVALID" entryPath
-                "canonical entry must be an attribute set, found a ${builtins.typeOf entry}";
-          # A collection is a list of objects, or an attribute set whose values
-          # are lists of objects (`canonicalSites = { sites = [...]; }`).
-          #
-          # There is no "keyed object map" form, and this is where the earlier
-          # version went wrong in the other direction: `{ sites = { oops = 1; };
-          # }` was accepted because `{ oops = 1; }` is an attribute set and the
-          # check stopped there. Treating an attribute set one level down as
-          # "objects keyed by name" reopens exactly the hole -- a scalar reaches
-          # the renderer whenever a producer adds a wrapper. So an attribute set
-          # below the collection name must be a list-bearing record; anything
-          # else, a scalar included, is rejected.
-          checkWrapper = wrapperPath: wrapper:
-            if builtins.isList wrapper then
-              builtins.map (checkEntry wrapperPath) wrapper
-            else
-              fail "NR_SCHEMA_SHAPE_INVALID" wrapperPath
-                "a canonical collection's records must be lists of attribute sets, found a ${builtins.typeOf wrapper}";
-          checked =
-            if !(builtins.isList canonical.${name} || builtins.isAttrs canonical.${name}) then
-              fail "NR_SCHEMA_SHAPE_INVALID" path "expected a list or an attribute set"
-            else if builtins.isList canonical.${name} then
-              builtins.map (checkEntry path) canonical.${name}
-            else
-              builtins.map (
-                key: checkWrapper "${path}/${key}" canonical.${name}.${key}
-              ) (builtins.attrNames canonical.${name});
+              fail "NR_SCHEMA_SHAPE_INVALID" path
+                "expected a list or an attribute set, found a ${builtins.typeOf canonical.${name}}";
         in
-        builtins.deepSeq checked true;
+        _shape;
     in
     builtins.deepSeq [ _unknown (builtins.map checkCollection names) ] true;
 
