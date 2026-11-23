@@ -81,13 +81,57 @@ in
   # One canonical object is one attribute set. A bare string in the list cannot
   # carry identity, type or path, so it would force the renderer to invent them.
   canonicalEntryShape = {
-    expected = "NR_SCHEMA_SHAPE_INVALID: /canonical/canonicalInterfaces: canonical entry is not an attribute set";
+    expected = "NR_SCHEMA_SHAPE_INVALID: /canonical/canonicalInterfaces: canonical entry must be an attribute set, found a string";
     value = schema.validateBundle (
       withBundleIdentity (
         validBundle
         // {
           canonical = {
             canonicalInterfaces = [ "interface-with-no-fields" ];
+          };
+        }
+      )
+    );
+  };
+
+  # A record-shaped collection whose value is a scalar, one level below a
+  # wrapper. The first version of this validator ACCEPTED this -- the outer
+  # attribute set short-circuited the check -- so whether a scalar was caught
+  # depended on how many wrappers a producer happened to add.
+  canonicalWrapperScalar = {
+    expected = "NR_SCHEMA_SHAPE_INVALID: /canonical/canonicalSites/sites: a canonical collection's records must be lists of attribute sets, found a set";
+    value = schema.validateBundle (
+      withBundleIdentity (
+        validBundle
+        // {
+          canonical = {
+            canonicalSites = {
+              sites = {
+                oops = 1;
+              };
+            };
+          };
+        }
+      )
+    );
+  };
+
+  # A keyed map of objects is not a shape the producer publishes (measured:
+  # canonicalInterfaces and canonicalRoutes are lists; canonicalSites,
+  # canonicalRuntimeTargets and canonicalWireGuard are records of lists). It is
+  # rejected so nobody starts relying on it.
+  canonicalKeyedObjects = {
+    expected = "NR_SCHEMA_SHAPE_INVALID: /canonical/canonicalRoutes/router/lan: a canonical collection's records must be lists of attribute sets, found a set";
+    value = schema.validateBundle (
+      withBundleIdentity (
+        validBundle
+        // {
+          canonical = {
+            canonicalRoutes = {
+              "router/lan" = {
+                dst = "0.0.0.0/0";
+              };
+            };
           };
         }
       )

@@ -329,38 +329,71 @@ let
       checkCollection =
         name:
         let
-          collection = canonical.${name};
           path = "/canonical/${name}";
           # One canonical collection may be a flat list of objects, a keyed
           # attribute set of objects, or a record of such (the producer
           # publishes `canonicalRuntimeTargets = { targets = [...]; }` and
-          # `canonicalSites = { sites = [...]; overlays = [...]; }`). Descend
-          # through attribute sets and lists until an object is reached, and
-          # require that object to be an attribute set.
-          checkEntry =
-            entryPath: entry:
-            if builtins.isList entry then
-              builtins.deepSeq (builtins.genList (
-                index: checkEntry "${entryPath}/${toString index}" (builtins.elemAt entry index)
-              ) (builtins.length entry)) true
-            else if builtins.isAttrs entry then
+          # `canonicalSites = { sites = [...]; overlays = [...]; }`).
+          #
+          # What a canonical collection holds. Exactly two levels deep, and no
+          # deeper, because that is the contract:
+          #
+          #   collection  a list of canonical objects, or an attribute set whose
+          #               values are lists of them. The producer publishes
+          #               `canonicalRuntimeTargets = { targets = [...]; }` and
+          #               `canonicalSites = { sites = [...]; overlays = [...]; }`,
+          #               and `canonicalInterfaces = [ ... ]`.
+          #   object      an attribute set of modelled fields, which may hold
+          #               strings, ints, booleans, lists and nested sets -- all
+          #               of it the object's own content, none of it the
+          #               renderer's business to validate here.
+          #
+          # THE BUG THIS REPLACES. The first version said "an attribute set is a
+          # valid entry, stop", so `canonicalRoutes = { a = 1; }` was rejected
+          # (the outer set was taken as the collection, `1` as an entry) while
+          # `canonicalSites = { sites = { oops = 1; }; }` was ACCEPTED -- the
+          # outer set short-circuited and the scalar sat one level further down.
+          # Whether a scalar was caught therefore depended on how many wrapper
+          # levels a producer happened to add.
+          #
+          # The naive fix -- descend until every leaf is an attribute set --
+          # rejects the real thing as well: a canonical object legitimately
+          # carries strings (`dst = "10.0.0.0/8"`). Measured that way too.
+          isObject = value: builtins.isAttrs value;
+          checkEntry = entryPath: entry:
+            if isObject entry then
               true
             else
-              fail "NR_SCHEMA_SHAPE_INVALID" entryPath "canonical entry is not an attribute set";
-          entries =
-            if builtins.isList collection then
-              collection
-            else if builtins.isAttrs collection then
-              builtins.attrValues collection
+              fail "NR_SCHEMA_SHAPE_INVALID" entryPath
+                "canonical entry must be an attribute set, found a ${builtins.typeOf entry}";
+          # A collection is a list of objects, or an attribute set whose values
+          # are lists of objects (`canonicalSites = { sites = [...]; }`).
+          #
+          # There is no "keyed object map" form, and this is where the earlier
+          # version went wrong in the other direction: `{ sites = { oops = 1; };
+          # }` was accepted because `{ oops = 1; }` is an attribute set and the
+          # check stopped there. Treating an attribute set one level down as
+          # "objects keyed by name" reopens exactly the hole -- a scalar reaches
+          # the renderer whenever a producer adds a wrapper. So an attribute set
+          # below the collection name must be a list-bearing record; anything
+          # else, a scalar included, is rejected.
+          checkWrapper = wrapperPath: wrapper:
+            if builtins.isList wrapper then
+              builtins.map (checkEntry wrapperPath) wrapper
             else
-              fail "NR_SCHEMA_SHAPE_INVALID" path "expected a list or an attribute set";
+              fail "NR_SCHEMA_SHAPE_INVALID" wrapperPath
+                "a canonical collection's records must be lists of attribute sets, found a ${builtins.typeOf wrapper}";
+          checked =
+            if !(builtins.isList canonical.${name} || builtins.isAttrs canonical.${name}) then
+              fail "NR_SCHEMA_SHAPE_INVALID" path "expected a list or an attribute set"
+            else if builtins.isList canonical.${name} then
+              builtins.map (checkEntry path) canonical.${name}
+            else
+              builtins.map (
+                key: checkWrapper "${path}/${key}" canonical.${name}.${key}
+              ) (builtins.attrNames canonical.${name});
         in
-        builtins.deepSeq (
-          builtins.map (
-            entry:
-            checkEntry path entry
-          ) entries
-        ) true;
+        builtins.deepSeq checked true;
     in
     builtins.deepSeq [ _unknown (builtins.map checkCollection names) ] true;
 

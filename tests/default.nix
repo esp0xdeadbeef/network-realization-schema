@@ -246,15 +246,28 @@ let
             canonicalPath = "/network/data/data/example/site/runtimeTargets/router/interfaces/lan";
           }
         ];
-        # A collection may also arrive keyed, as the producer publishes it.
-        canonicalRoutes = {
-          "router/lan/4/main/0.0.0.0-0" = {
+        # A collection of objects carries scalar FIELDS; that is the object's
+        # own content and must stay valid.
+        canonicalRoutes = [
+          {
             target = "router";
             runtimeIfName = "lan";
             family = 4;
             dst = "0.0.0.0/0";
             tableId = null;
-          };
+          }
+        ];
+        # The producer publishes its record-shaped collections as sets of
+        # LISTS (`{ sites = [...]; overlays = [...]; }`), not as keyed maps.
+        canonicalSites = {
+          sites = [
+            {
+              enterprise = "example";
+              site = "site";
+              facts = { };
+            }
+          ];
+          overlays = [ ];
         };
       };
     }
