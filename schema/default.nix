@@ -61,6 +61,41 @@
       "lifecycle"
       "backend"
     ];
+
+    # Category shapes.
+    #
+    # Naming a category in `allowedCategories` without saying what it may contain
+    # left the binding bundle carrying an untyped bag: a renderer that needs a
+    # deployment fact (which host an endpoint lives on, which bridge it attaches
+    # to) had nowhere to read it FROM, so it reached into the plain CPM instead
+    # and RR_RAW_CPM_INPUT failed fleet-wide -- measured on
+    # network-renderer-access-endpoint-nixos, whose `endpointAssignment` (bridge,
+    # runtimeAddressAssignments) is a deployment fact with no canonical home.
+    #
+    # A shape here says only WHERE a fact may live and under which name. It does
+    # not define what the values mean: the values remain the producer's, and a
+    # renderer still may not infer or reconstruct them.
+    categories = {
+      # Where deployment places canonical objects on a target.
+      # Entries are dotted keys (`deployment.<field>[.<subfield>]`), the
+      # convention examples/valid-platform-binding.nix already uses
+      # (`deployment.hosts.router = "fixture-host"`). The allowed list names the
+      # top-level facts under `deployment`; anything after the fact name is the
+      # producer's own structure.
+      deployment = {
+        allowed = [
+          # Per-endpoint placement: the bridge an endpoint attaches to and the
+          # addresses assigned at runtime. Deployment mechanics, not network
+          # semantics -- the addresses themselves come from the canonical
+          # collections.
+          "endpointAssignment"
+          # Per-host facts, mirroring the CPM's
+          # deployment.hosts.<host>.bridgeNetworks and .uplinks.
+          "hosts"
+        ];
+      };
+    };
+
     required = [
       "kind"
       "schemaRevision"

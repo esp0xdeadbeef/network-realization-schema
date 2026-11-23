@@ -295,4 +295,38 @@ in
       validBinding
       { bundleIdentity = "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; };
   };
+
+  # The `deployment` category names the deployment facts a renderer may read
+  # instead of reaching into the plain CPM. That is the whole reason it exists:
+  # network-renderer-access-endpoint-nixos needs `endpointAssignment` (bridge,
+  # runtimeAddressAssignments) and had no canonical home for it, so it read
+  # control_plane_model and failed RR_RAW_CPM_INPUT.
+  #
+  # A category shape that accepts anything it is handed would not close that: a
+  # renderer still could not tell a modelled fact from an invented one. This
+  # asserts the shape rejects a field no category names.
+  deploymentCategoryRejectsUnknownField = {
+    # Reported as an unknown category: category entries are dotted keys, so a
+    # fact the schema does not name under `deployment` presents as a category of
+    # its own. That is the stronger outcome -- the schema refuses it at the
+    # category level, before any renderer can read it -- and it is why the
+    # negative case is worth having: without the shape list, a producer could
+    # invent `deployment.anything` and every consumer would treat it as a
+    # modelled deployment fact.
+    expected = "NR_PLATFORM_BINDING_CATEGORY_UNKNOWN";
+    value = schema.validatePlatformBinding (
+      withBindingIdentity (
+        validBinding
+        // {
+          # Dotted-key form, which is what the binding format actually uses
+          # (examples/valid-platform-binding.nix: `deployment.hosts.router`).
+          # A nested mutation here would be invisible to the shape check and the
+          # negative case would pass for the wrong reason.
+          categories = (validBinding.categories or { }) // {
+            "deployment.inventedDeploymentFact" = { anything = true; };
+          };
+        }
+      )
+    );
+  };
 }

@@ -579,11 +579,58 @@ let
       _revision =
         requireEqual "NR_PLATFORM_BINDING_SCHEMA_INVALID" "/schemaRevision" schema.platformBinding.revision
           revision;
+      # A category name must be one the schema lists, AND its content must be a
+      # shape the schema names.
+      #
+      # Checking only the name let a binding bundle carry an arbitrary bag under
+      # `deployment` and still validate, so a renderer that needs a deployment
+      # fact had no way to tell a modelled one from an invented one -- and no
+      # canonical place to read it from, which is why
+      # network-renderer-access-endpoint-nixos read the plain CPM and failed
+      # RR_RAW_CPM_INPUT. The shape is what makes the category usable.
+      categoryShapes = schema.platformBinding.categories or { };
+      unknownCategoryFields =
+        builtins.concatMap (
+          name:
+          let
+            shape = categoryShapes.${name} or null;
+            body = categories.${name} or null;
+          in
+          if
+            shape == null
+            || !(builtins.isAttrs body)
+            || !(builtins.isList (shape.allowed or null))
+          then
+            [ ]
+          else
+            map (field: "${name}.${field}") (
+              builtins.filter (
+                field:
+                let
+                  # Category entries are dotted keys: `deployment.hosts.router`
+                  # names the `hosts` fact. Compare on the segment after the
+                  # category name, which is the fact the shape governs.
+                  parts = builtins.filter builtins.isString (
+                    builtins.split "\." field
+                  );
+                  rest = if parts == [ ] then [ ] else builtins.tail parts;
+                  fact = if rest == [ ] then field else builtins.head rest;
+                in
+                !(builtins.elem fact shape.allowed)
+              ) (builtins.attrNames body)
+            )
+        ) categoryNames;
       _categories =
         if unknownCategories == [ ] then
           true
         else
           fail "NR_PLATFORM_BINDING_CATEGORY_UNKNOWN" "/categories" (builtins.toJSON unknownCategories);
+      _categoryShape =
+        if unknownCategoryFields == [ ] then
+          true
+        else
+          fail "NR_SCHEMA_SHAPE_INVALID" "/categories"
+            "unknown category fields ${builtins.toJSON unknownCategoryFields}";
       _authority =
         if containsBindingAuthority categories then
           fail "NR_PLATFORM_BINDING_AUTHORITY" "/categories" "network authority field is forbidden"
