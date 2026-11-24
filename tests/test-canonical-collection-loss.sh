@@ -64,10 +64,21 @@ seeded_out="$(
       schema = import (schemaRepo + "/lib/default.nix");
       model = import (modelRepo + "/src/default.nix") { inherit schema; };
       fixture = import (modelRepo + "/examples/cpm-result.nix");
+      # The seed is a collection the schema does NOT list, chosen at evaluation
+      # time from the schema itself.
+      #
+      # It used to be `canonicalOverlays`, hardcoded -- and when the schema started
+      # listing `canonicalOverlays` (the correct fix for the drift this test was
+      # written for) the seed became a LISTED collection, so the gate correctly
+      # stopped firing and CASE 1 failed with "the throw does not name ...". A
+      # negative fixture that hardcodes a name the contract is allowed to adopt
+      # stops being a negative the moment the contract is repaired.
+      seedName = "canonicalByteIndependenceProbe";
+      _seedUnlisted = assert !(builtins.elem seedName schema.schema.bundle.canonicalCollections);
+      true;
       seeded = fixture // {
         control_plane_model = fixture.control_plane_model // {
-          # Published by the producer, absent from schema.bundle.canonicalCollections.
-          canonicalOverlays = [ ];
+          ${seedName} = [ ];
         };
       };
     in
@@ -96,7 +107,7 @@ elif ! grep -qF "NR_CANONICAL_COLLECTION_DROPPED" <<<"${seeded_out}"; then
     echo "FAIL CASE 1: the throw does not carry NR_CANONICAL_COLLECTION_DROPPED"
     echo "  got: ${seeded_out}"
   } >&2
-elif ! grep -qF "canonicalOverlays" <<<"${seeded_out}"; then
+elif ! grep -qF "canonicalByteIndependenceProbe" <<<"${seeded_out}"; then
   issues=$((issues + 1))
   {
     echo "FAIL CASE 1: the throw does not name the dropped collection"
@@ -179,6 +190,25 @@ fi
 producer_repo="${CANONICAL_PRODUCER_REPO:-${workspace_root}/network-control-plane-model}"
 example="${CANONICAL_TEST_EXAMPLE:-${workspace_root}/network-labs/examples/wireguard-provider-overlay}"
 
+# No sibling checkout is the CI layout. Fall back to the PINNED producer inputs
+# (flake.lock) rather than letting CASE 3 evaporate: the pinned revisions are what
+# this repository actually claims to be compatible with.
+if [[ ! -f "${producer_repo}/flake.nix" ]] || [[ ! -f "${example}/intent.nix" ]]; then
+  nix_expr=(
+    --impure --json --expr
+    'let flake = builtins.getFlake ("path:" + builtins.getEnv "REPO_ROOT"); in
+     { producer = toString flake.producerAuditRoots.network-control-plane-model;
+       example = toString flake.producerAuditRoots.canonicalExample; }'
+  )
+  pinned="$(REPO_ROOT="${repo_root}" nix eval "${nix_expr[@]}" 2>/dev/null || true)"
+  if [[ -n "${pinned}" ]]; then
+    pinned_producer="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["producer"])' "${pinned}" 2>/dev/null || true)"
+    pinned_example="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["example"])' "${pinned}" 2>/dev/null || true)"
+    if [[ -n "${pinned_producer}" && -f "${pinned_producer}/flake.nix" ]]; then producer_repo="${pinned_producer}"; fi
+    if [[ -n "${pinned_example}" && -f "${pinned_example}/intent.nix" ]]; then example="${pinned_example}"; fi
+  fi
+fi
+
 live_out=""
 if [[ -f "${producer_repo}/flake.nix" ]] && [[ -f "${example}/intent.nix" ]]; then
   live_out="$(
@@ -205,9 +235,23 @@ if [[ -f "${producer_repo}/flake.nix" ]] && [[ -f "${example}/intent.nix" ]]; th
         };
       in
       {
+        # The published CANONICAL collections the producer emits.
+        #
+        # The namespace is the contract, not the opinion of this test: canonicalFor
+        # projects only names under `canonical*` and only claims about those
+        # (`publishedCanonical = filter (hasPrefix "canonical") ...`). An earlier
+        # version of this filter took every list-or-attr of the envelope, so it
+        # counted `data`, `secretReadiness`, `secretDeliveryRecords`,
+        # `secretAuthorization`, `secretPolicyBoundary`, `secretPlaintextGuard` as
+        # "published collections the schema must list" -- they are the CPM
+        # envelope-own non-canonical sections, they never enter `bundle.canonical`
+        # by design, and CASE 3 then failed with six phantom drops on a correct
+        # model. A comparison must use the same predicate as the thing it audits
+        # (no apostrophes in this block: it is a single-quoted nix expression).
         published = builtins.filter
-          (name: builtins.isList (cpm.control_plane_model.${name} or null)
+          (name: (builtins.isList (cpm.control_plane_model.${name} or null)
                  || builtins.isAttrs (cpm.control_plane_model.${name} or null))
+                 && builtins.match "canonical.*" name != null)
           (builtins.attrNames cpm.control_plane_model);
         outcome = builtins.tryEval (builtins.deepSeq (model.realize {
           inherit input;
@@ -227,15 +271,23 @@ if [[ -f "${producer_repo}/flake.nix" ]] && [[ -f "${example}/intent.nix" ]]; th
 fi
 
 if [[ -z "${live_out}" || "${live_out}" != \{* ]]; then
-  echo "  note: CASE 3 did not evaluate: the producer did not compile a CPM for the"
-  echo "        example, or a checkout is missing beside this repository."
-  if [[ -n "${live_out}" ]]; then
-    echo "        first line of the evaluation result:"
-    head -1 <<<"${live_out}" | sed 's/^/          /'
-    tail -1 <<<"${live_out}" | sed 's/^/          /'
-  fi
-  echo "        CASE 1 and CASE 2 still ran, and they are the cases that prove the"
-  echo "        check fires and that it can pass."
+  # A missing producer is a missing producer, and the previous version said so in a
+  # note while the case reported nothing -- so a red run never mentioned the third
+  # of the evidence it did not collect. The producer input is pinned in flake.lock
+  # and materialised in CI, so "no producer" is a defect here, not an environment
+  # fact. Say it, and fail.
+  issues=$((issues + 1))
+  {
+    echo "FAIL CASE 3: the live producer did not evaluate, so nothing was compared"
+    if [[ -n "${live_out}" ]]; then
+      echo "  first line of the evaluation result:"
+      head -1 <<<"${live_out}" | sed 's/^/    /'
+      tail -1 <<<"${live_out}" | sed 's/^/    /'
+    fi
+    echo "  The producer and its example are pinned inputs (flake.lock), so this is"
+    echo "  either the pinned revision failing to compile the example, or the"
+    echo "  example's intent/inventory disagreeing -- which is itself the finding."
+  } >&2
 else
   if ! python3 - "${live_out}" <<'PY'
 import json

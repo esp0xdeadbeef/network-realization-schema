@@ -3,10 +3,34 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+  # Producer inputs, for the cross-repository contract tests ONLY.
+  #
+  # tests/test-canonical-set-drift.sh and tests/test-canonical-collection-loss.sh
+  # compare this repository's closed `canonicalCollections` set against what the
+  # real producer actually publishes. Neither direction is visible from inside this
+  # repository, so the comparison needs a producer -- and without one the tests
+  # used to SKIP, which CI (correctly) reports as a failure: a skipped case is not a
+  # verdict.
+  #
+  # Pinning them here is what makes CI materialise them: the tests-matrix workflow
+  # checks out every esp0xdeadbeef github input of flake.lock beside the workspace.
+  # The schema itself still does not CONSUME producer output -- nothing in
+  # lib/ or schema/ imports these; they are read by the audit tests and by nothing
+  # else. There is no dependency cycle: network-control-plane-model depends on
+  # network-forwarding-model and network-labs, neither of which depends on the
+  # schema.
+  inputs.network-control-plane-model.url = "github:esp0xdeadbeef/network-control-plane-model";
+  inputs.network-control-plane-model.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.network-control-plane-model.inputs.network-labs.follows = "network-labs";
+  inputs.network-labs.url = "github:esp0xdeadbeef/network-labs";
+  inputs.network-labs.inputs.nixpkgs.follows = "nixpkgs";
+
   outputs =
     {
       self,
       nixpkgs,
+      network-control-plane-model,
+      network-labs,
     }:
     let
       systems = [
@@ -24,6 +48,18 @@
     in
     {
       lib = schemaLib;
+
+      # Where the producer audit tests find the producer and its example.
+      #
+      # The tests run as plain shell, so they need PATHS, not flake attrs. These
+      # are the pinned input stores: resolved from flake.lock, reproducible, and
+      # present in CI because the workflow materialises them. The tests still
+      # prefer a sibling checkout when one exists (a developer's ../network-*),
+      # because that is the tree they are about to change.
+      producerAuditRoots = {
+        inherit network-control-plane-model network-labs;
+        canonicalExample = network-labs + "/examples/wireguard-provider-overlay";
+      };
 
       packages = forAllSystems (
         system:

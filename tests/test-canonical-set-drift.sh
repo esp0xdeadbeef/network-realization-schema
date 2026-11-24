@@ -63,12 +63,38 @@ echo "  schema declares: $(python3 -c "import json;print(' '.join(json.loads('''
 producer_repo="${CANONICAL_PRODUCER_REPO:-${workspace_root}/network-control-plane-model}"
 example="${CANONICAL_TEST_EXAMPLE:-${workspace_root}/network-labs/examples/wireguard-provider-overlay}"
 
+# A sibling checkout is the developer layout, not the CI layout. When there is no
+# sibling (CI checks this repository out alone before the sibling step, and a fresh
+# clone has none), fall back to the PINNED flake inputs -- the same revision the
+# flake.lock names, which is what CI materialises. Skipping here was the defect: a
+# skipped case is not a verdict, so the workflow turned this file red with no
+# comparison having happened.
 if [[ ! -f "${producer_repo}/flake.nix" ]] || [[ ! -f "${example}/intent.nix" ]]; then
-  echo "SKIP CANONICAL-SET-DRIFT: no producer checkout or example to evaluate"
-  echo "  looked for ${producer_repo}/flake.nix and ${example}/intent.nix"
-  exit 0
+  nix_expr=(
+    --impure --json --expr
+    'let flake = builtins.getFlake ("path:" + builtins.getEnv "REPO_ROOT"); in
+     { producer = toString flake.producerAuditRoots.network-control-plane-model;
+       example = toString flake.producerAuditRoots.canonicalExample; }'
+  )
+  pinned="$(REPO_ROOT="${repo_root}" nix eval "${nix_expr[@]}" 2>/dev/null || true)"
+  if [[ -n "${pinned}" ]]; then
+    pinned_producer="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["producer"])' "${pinned}" 2>/dev/null || true)"
+    pinned_example="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["example"])' "${pinned}" 2>/dev/null || true)"
+    if [[ -n "${pinned_producer}" && -f "${pinned_producer}/flake.nix" ]]; then producer_repo="${pinned_producer}"; fi
+    if [[ -n "${pinned_example}" && -f "${pinned_example}/intent.nix" ]]; then example="${pinned_example}"; fi
+  fi
 fi
 
+if [[ ! -f "${producer_repo}/flake.nix" ]] || [[ ! -f "${example}/intent.nix" ]]; then
+  echo "FAIL CANONICAL-SET-DRIFT: no producer to compare against, so there is no verdict" >&2
+  echo "  looked for a sibling at ${workspace_root}/network-control-plane-model and" >&2
+  echo "  ${workspace_root}/network-labs/examples/wireguard-provider-overlay, and for the" >&2
+  echo "  pinned flake inputs (network-control-plane-model, network-labs)." >&2
+  echo "  A skip would claim this comparison happened when it did not." >&2
+  exit 1
+fi
+
+producer_err="$(mktemp)"
 published="$(PRODUCER="${producer_repo}" EXAMPLE="${example}" \
   nix eval --impure --json --expr '
     let
@@ -84,12 +110,22 @@ published="$(PRODUCER="${producer_repo}" EXAMPLE="${example}" \
     in
     builtins.sort builtins.lessThan
       (builtins.filter (lib.hasPrefix "canonical") (builtins.attrNames cpm.control_plane_model))' \
-  2>/dev/null || true)"
+  2>"${producer_err}" || true)"
 
 if [[ -z "${published}" ]]; then
   echo "FAIL CANONICAL-SET-DRIFT: the producer evaluated to nothing (cannot compare)" >&2
+  # DO NOT swallow this. A bare `2>/dev/null` here once reported "evaluated to
+  # nothing" while the real cause was a model error in the example's inventory, so
+  # the failure pointed at the schema instead of the producer. Whatever nix said is
+  # the finding.
+  if [[ -s "${producer_err}" ]]; then
+    echo "  the producer's own error follows; it is the finding, not this test:" >&2
+    sed 's/^/    /' "${producer_err}" | tail -20 >&2
+  fi
+  rm -f "${producer_err}"
   exit 1
 fi
+rm -f "${producer_err}"
 
 echo "  producer publishes: $(python3 -c "import json;print(' '.join(json.loads('''${published}''')))")"
 echo ""
