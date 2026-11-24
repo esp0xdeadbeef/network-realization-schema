@@ -205,6 +205,11 @@ jobs:
       # test that audits another repository's current code and pins that code would
       # only ever audit the pin.
       - name: "Check out the realization model (unpinnable sibling)"
+        # One shared workflow for the whole fleet: the step is present everywhere and
+        # runs only where the test that needs it exists. An unconditional step here
+        # forks this file, and a forked workflow is a gate that answers differently per
+        # repository.
+        if: hashFiles('tests/test-canonical-collection-loss.sh') != ''
         shell: bash
         run: |
           set -euo pipefail
