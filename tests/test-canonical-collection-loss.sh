@@ -135,6 +135,11 @@ fi
 # CASE 2 -- the same check must be able to pass. Without this, CASE 1 is
 # satisfied by a check that throws unconditionally.
 # ---------------------------------------------------------------------------
+# Same rule as CASE 3: the value is stdout. A merged capture puts Nix's
+# cold-store progress line in front of the JSON, json.loads then raises, and the
+# case reports a realization defect that is really a cache miss.
+unseeded_err="$(mktemp)"
+trap 'rm -f "${unseeded_err}"' EXIT
 unseeded_out="$(
   SCHEMA_REPO="${repo_root}" MODEL_REPO="${model_repo}" \
   nix eval --impure --json --expr '
@@ -157,7 +162,7 @@ unseeded_out="$(
     {
       collections = builtins.attrNames (bundle.canonical or { });
       interfaces = builtins.length (bundle.canonical.canonicalInterfaces or [ ]);
-    }' 2>&1 || true
+    }' 2>"${unseeded_err}" || true
 )"
 
 if ! python3 - "${unseeded_out}" <<'PY'
@@ -176,6 +181,10 @@ then
   {
     echo "FAIL CASE 2: the control fixture did not realize with its listed collection in the bundle"
     echo "  got: ${unseeded_out}"
+    if [[ -s "${unseeded_err}" ]]; then
+      echo "  last lines of nix's stderr:"
+      tail -3 "${unseeded_err}" | sed 's/^/    /'
+    fi
   } >&2
 else
   echo "PASS CASE 2: the control fixture realizes and keeps the listed collection (the check can pass)"
@@ -210,6 +219,14 @@ if [[ ! -f "${producer_repo}/flake.nix" ]] || [[ ! -f "${example}/intent.nix" ]]
 fi
 
 live_out=""
+# stdout carries the document, stderr carries diagnostics. A merged capture
+# (`2>&1`) folds Nix's progress line -- "copying path '/nix/store/...-source'
+# from 'https://cache.nixos.org'..." -- into the value, so on a cold store the
+# first character is `c` instead of `{` and this case reported "the live producer
+# did not evaluate" for a commit whose evaluation had succeeded. Measured on a CI
+# runner; a developer machine has the store path already and never saw it.
+live_err="$(mktemp)"
+trap 'rm -f "${live_err}"' EXIT
 if [[ -f "${producer_repo}/flake.nix" ]] && [[ -f "${example}/intent.nix" ]]; then
   live_out="$(
     SCHEMA_REPO="${repo_root}" MODEL_REPO="${model_repo}" \
@@ -266,7 +283,7 @@ if [[ -f "${producer_repo}/flake.nix" ]] && [[ -f "${example}/intent.nix" ]]; th
         # asked the same question directly: which published collections does the
         # schema list?
         listed = schema.schema.bundle.canonicalCollections;
-      }' 2>&1 || true
+      }' 2>"${live_err}" || true
   )"
 fi
 
@@ -283,6 +300,10 @@ if [[ -z "${live_out}" || "${live_out}" != \{* ]]; then
       echo "  first line of the evaluation result:"
       head -1 <<<"${live_out}" | sed 's/^/    /'
       tail -1 <<<"${live_out}" | sed 's/^/    /'
+    fi
+    if [[ -s "${live_err}" ]]; then
+      echo "  last lines of nix's stderr:"
+      tail -3 "${live_err}" | sed 's/^/    /'
     fi
     echo "  The producer and its example are pinned inputs (flake.lock), so this is"
     echo "  either the pinned revision failing to compile the example, or the"
