@@ -206,7 +206,7 @@ let
     }
   );
 
-  # SMS-030 negatives
+  # FS-161-HDS-010-SDS-010-SMS-030 negatives
 
   bindingSchemaInvalid =
     (builtins.removeAttrs validBinding [ "kind" ])

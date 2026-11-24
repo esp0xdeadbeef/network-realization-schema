@@ -255,7 +255,7 @@ in
     );
   };
 
-  # SMS-030 seeded negatives (NR-BIND-N1, N4, N5, N6)
+  # FS-161-HDS-010-SDS-010-SMS-030 seeded negatives (NR-BIND-N1, N4, N5, N6)
 
   bindingSchemaInvalid = {
     expected = "NR_PLATFORM_BINDING_SCHEMA_INVALID: /kind: expected";
