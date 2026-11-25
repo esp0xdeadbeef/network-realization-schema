@@ -64,6 +64,45 @@
       "canonicalRuntimeTargets"
       "canonicalSites"
     ];
+
+    # HOW A RENDERER GETS THEM
+    # ------------------------
+    # The collections above are what a renderer maps, and the gate strips every
+    # name that would hand it the plain control-plane model instead
+    # (network-realization-model `validateRendererInput` withdraws
+    # `controlPlaneEnvelope`, `semanticModel`, `semanticArtifact`).
+    #
+    # A renderer module still needs a shape, not a flat bag: it reads
+    # `model.data.<enterprise>.<site>.runtimeTargets`,
+    # `model.canonicalSites.byEnterprise`, `model.forwardingModel`. Each renderer
+    # that obeyed the gate therefore built that envelope itself, differently and
+    # lossily -- network-renderer-nixos' copy dropped `canonicalSites`, so its own
+    # firewall lookup could not find the site record the bundle carried.
+    #
+    # So the envelope is part of this contract, produced once, by the model:
+    #
+    #   (network-realization-model.lib.validateRendererInput { bundle = ...; })
+    #     .structuralView
+    #
+    # Its `model` carries `data` and every name in `canonicalCollections` above,
+    # and nothing else: the view is a projection of this closed set, so it cannot
+    # carry a collection the schema does not name, and it cannot carry the raw
+    # model. A renderer that needs a fact the view does not publish must get it
+    # added here first -- which is the review this list exists to force.
+    rendererView = {
+      revision = "network-bundle-renderer-view/v1";
+      producer = "network-realization-model";
+      function = "validateRendererInput.structuralView";
+      envelope = "model";
+      collections = [
+        "canonicalForwarding"
+        "canonicalInterfaces"
+        "canonicalOverlays"
+        "canonicalRoutes"
+        "canonicalRuntimeTargets"
+        "canonicalSites"
+      ];
+    };
   };
 
   platformBinding = {
