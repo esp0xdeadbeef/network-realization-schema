@@ -136,6 +136,26 @@
       # (`deployment.hosts.router = "fixture-host"`). The allowed list names the
       # top-level facts under `deployment`; anything after the fact name is the
       # producer's own structure.
+      # HOW canonical interfaces are named on the target.
+      #
+      # A renderer must join every canonical record to the interface that installs it, and
+      # it cannot do that from the published names: IFNAMSIZ is 15 characters while the
+      # producer publishes `downstream-clients` (18), `downstream-unlock` (17) and
+      # `downstream-vlan2` (16), so the renderer abbreviates them (`down-clients`,
+      # `down-unlock`, `down-vlan2`) and the vocabularies diverge exactly on the lanes that
+      # matter. Measured on the neon HAT: the policy container carries the short names, the
+      # bundle the long ones, and every lookup keyed by the producer's name misses.
+      #
+      # `assignments` is the renderer's own binding -- canonical interface name to the
+      # device it was realized as. Binding an object to target mechanics is what a platform
+      # binding is FOR (FS-310-HDS-040-SDS-010-SMS-100); deriving the name from topology is
+      # what the row forbids.
+      interfaceIdentity = {
+        allowed = [
+          "assignments"
+        ];
+      };
+
       deployment = {
         allowed = [
           # Per-endpoint placement: the bridge an endpoint attaches to and the
